@@ -3,6 +3,10 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const { createClient } = require('@supabase/supabase-js');
 
+// 🔧 SOLUCIÓN PARA WEBSOCKET EN NODE.JS 20
+const WebSocket = require('ws');
+global.WebSocket = WebSocket;
+
 dotenv.config();
 
 const app = express();
