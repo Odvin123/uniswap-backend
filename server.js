@@ -10,19 +10,50 @@ global.WebSocket = WebSocket;
 dotenv.config();
 
 const app = express();
+
+// ==================== CORS ACTUALIZADO ====================
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'https://uniswap-frontend-gold.vercel.app',
+  'https://uniswap-frontend.vercel.app',
+  'https://*.vercel.app'
+];
+
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174'],
+  origin: function(origin, callback) {
+    // Permitir peticiones sin origen (como herramientas de prueba)
+    if (!origin) return callback(null, true);
+    
+    // Verificar si el origen está permitido
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
+    }
+    
+    // Verificar si el origen termina en .vercel.app
+    if (origin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+    
+    console.log('❌ Origin bloqueado por CORS:', origin);
+    return callback(new Error('No permitido por CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
 app.use(express.json({ limit: '10mb' }));
 
-// Inicializar Supabase con SERVICE_KEY
+// ==================== INICIALIZAR SUPABASE ====================
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
+
+// ==================== FUNCIONES AUXILIARES ====================
 
 // Función para asegurar que el perfil existe
 const asegurarPerfil = async (userId, email, nombre) => {
@@ -67,6 +98,10 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'UNISWAP Backend funcionando!' });
 });
 
+app.get('/', (req, res) => {
+  res.json({ status: 'OK', message: 'UNISWAP Backend funcionando!' });
+});
+
 // ==================== RUTAS DE MATERIALES ====================
 
 // Obtener todos los materiales activos
@@ -104,7 +139,7 @@ app.post('/api/materiales', verificarToken, async (req, res) => {
         carrera,
         estado,
         descripcion,
-        imagen_url,
+        imagen_url: imagen_url || null,
         usuario_id: req.user.id,
         usuario_nombre: nombreUsuario,
         usuario_email: req.user.email,
@@ -113,10 +148,31 @@ app.post('/api/materiales', verificarToken, async (req, res) => {
       })
       .select();
     
-    if (error) throw error;
+    if (error) {
+      console.error("❌ Error al insertar material:", error);
+      throw error;
+    }
+    
+    console.log("✅ Material creado:", data[0]);
     res.json(data[0]);
   } catch (error) {
-    console.error("Error:", error);
+    console.error("❌ Error en POST /api/materiales:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Eliminar material (soft delete)
+app.delete('/api/materiales/:id', verificarToken, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('materiales')
+      .update({ activo: false })
+      .eq('id', req.params.id)
+      .eq('usuario_id', req.user.id);
+    
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
@@ -162,22 +218,6 @@ app.get('/api/estadisticas', async (req, res) => {
     });
   } catch (error) {
     console.error("Error en estadísticas:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Eliminar material (soft delete)
-app.delete('/api/materiales/:id', verificarToken, async (req, res) => {
-  try {
-    const { error } = await supabase
-      .from('materiales')
-      .update({ activo: false })
-      .eq('id', req.params.id)
-      .eq('usuario_id', req.user.id);
-    
-    if (error) throw error;
-    res.json({ success: true });
-  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
@@ -278,14 +318,14 @@ app.post('/api/solicitudes', verificarToken, async (req, res) => {
       .select();
     
     if (error) {
-      console.error("❌ Error al insertar:", error);
+      console.error("❌ Error al insertar solicitud:", error);
       throw error;
     }
     
     console.log("✅ Solicitud creada:", data[0]);
     res.json(data[0]);
   } catch (error) {
-    console.error("❌ Error:", error);
+    console.error("❌ Error en POST /api/solicitudes:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -431,21 +471,21 @@ app.post('/api/mensajes', verificarToken, async (req, res) => {
       .select();
     
     if (error) {
-      console.error("❌ Error al insertar:", error);
+      console.error("❌ Error al insertar mensaje:", error);
       throw error;
     }
     
     console.log("✅ Mensaje guardado:", data[0]);
     res.json(data[0]);
   } catch (error) {
-    console.error("❌ Error:", error);
+    console.error("❌ Error en POST /api/mensajes:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
 // ==================== INICIAR SERVIDOR ====================
 const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 UNISWAP Backend corriendo en http://localhost:${PORT}`);
   console.log(`📡 Health check: http://localhost:${PORT}/api/health`);
 });
