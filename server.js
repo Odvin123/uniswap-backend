@@ -7,7 +7,7 @@ dotenv.config();
 
 const app = express();
 
-// CORS para producción
+// CORS para producción y desarrollo
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
@@ -30,13 +30,16 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
 app.use(express.json({ limit: '10mb' }));
 
-// Inicializar Supabase con SERVICE_KEY
+// ==================== INICIALIZAR SUPABASE ====================
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
+
+// ==================== FUNCIONES AUXILIARES ====================
 
 // Función para asegurar que el perfil existe
 const asegurarPerfil = async (userId, email, nombre) => {
@@ -76,7 +79,13 @@ const verificarToken = async (req, res, next) => {
   next();
 };
 
-// ==================== RUTAS DE PRUEBA ====================
+// ==================== RUTAS ====================
+
+// Ruta raíz para healthcheck
+app.get('/', (req, res) => {
+  res.json({ status: 'OK', message: 'UNISWAP Backend funcionando!' });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'UNISWAP Backend funcionando!' });
 });
@@ -104,9 +113,6 @@ app.post('/api/materiales', verificarToken, async (req, res) => {
   try {
     const { titulo, tipo, carrera, estado, descripcion, imagen_url } = req.body;
     
-    console.log("📦 Creando material para usuario:", req.user.id);
-    console.log("Datos:", { titulo, tipo, carrera, estado });
-    
     await asegurarPerfil(req.user.id, req.user.email, req.user.user_metadata?.name);
     
     const nombreUsuario = req.user.user_metadata?.name || req.user.email.split('@')[0];
@@ -128,15 +134,10 @@ app.post('/api/materiales', verificarToken, async (req, res) => {
       })
       .select();
     
-    if (error) {
-      console.error("❌ Error al insertar:", error);
-      throw error;
-    }
-    
-    console.log("✅ Material creado:", data[0]);
+    if (error) throw error;
     res.json(data[0]);
   } catch (error) {
-    console.error("❌ Error:", error);
+    console.error("Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -158,6 +159,7 @@ app.delete('/api/materiales/:id', verificarToken, async (req, res) => {
 });
 
 // ==================== RUTAS DE ESTADÍSTICAS ====================
+
 app.get('/api/estadisticas', async (req, res) => {
   try {
     const { data: materiales, error: errorMat } = await supabase
@@ -178,13 +180,6 @@ app.get('/api/estadisticas', async (req, res) => {
     const estudiantesActivos = perfiles?.length || 0;
     const intercambiosRealizados = solicitudes?.length || 0;
     const co2Evitado = intercambiosRealizados * 7.5;
-    
-    console.log("📊 Estadísticas calculadas:", {
-      materialesActivos,
-      estudiantesActivos,
-      intercambiosRealizados,
-      co2Evitado
-    });
     
     res.json({
       materialesRescatados: materialesActivos,
@@ -262,11 +257,6 @@ app.post('/api/solicitudes', verificarToken, async (req, res) => {
   try {
     const { material_id, material_titulo, propietario_id, propietario_nombre, propietario_email } = req.body;
     
-    console.log("📝 Creando solicitud...");
-    console.log("Material:", material_titulo);
-    console.log("Solicitante:", req.user.id);
-    console.log("Propietario:", propietario_id);
-    
     await asegurarPerfil(req.user.id, req.user.email, req.user.user_metadata?.name);
     await asegurarPerfil(propietario_id, propietario_email, propietario_nombre);
     
@@ -286,15 +276,10 @@ app.post('/api/solicitudes', verificarToken, async (req, res) => {
       })
       .select();
     
-    if (error) {
-      console.error("❌ Error al insertar:", error);
-      throw error;
-    }
-    
-    console.log("✅ Solicitud creada:", data[0]);
+    if (error) throw error;
     res.json(data[0]);
   } catch (error) {
-    console.error("❌ Error:", error);
+    console.error("Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -394,7 +379,6 @@ app.delete('/api/solicitudes/:id', verificarToken, async (req, res) => {
 app.get('/api/mensajes/:chatId', verificarToken, async (req, res) => {
   try {
     const { chatId } = req.params;
-    console.log("📩 Obteniendo mensajes del chat:", chatId);
     
     const { data, error } = await supabase
       .from('mensajes')
@@ -403,10 +387,9 @@ app.get('/api/mensajes/:chatId', verificarToken, async (req, res) => {
       .order('created_at', { ascending: true });
     
     if (error) throw error;
-    console.log(`✅ ${data?.length || 0} mensajes encontrados`);
     res.json(data || []);
   } catch (error) {
-    console.error("❌ Error al obtener mensajes:", error);
+    console.error("Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -414,11 +397,6 @@ app.get('/api/mensajes/:chatId', verificarToken, async (req, res) => {
 app.post('/api/mensajes', verificarToken, async (req, res) => {
   try {
     const { chat_id, texto } = req.body;
-    
-    console.log("📤 Enviando mensaje...");
-    console.log("- Chat ID:", chat_id);
-    console.log("- Emisor:", req.user.id);
-    console.log("- Texto:", texto);
     
     const { data, error } = await supabase
       .from('mensajes')
@@ -431,22 +409,13 @@ app.post('/api/mensajes', verificarToken, async (req, res) => {
       })
       .select();
     
-    if (error) {
-      console.error("❌ Error al insertar:", error);
-      throw error;
-    }
-    
-    console.log("✅ Mensaje guardado:", data[0]);
+    if (error) throw error;
     res.json(data[0]);
   } catch (error) {
-    console.error("❌ Error:", error);
+    console.error("Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ==================== INICIAR SERVIDOR ====================
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 UNISWAP Backend corriendo en http://localhost:${PORT}`);
-  console.log(`📡 Health check: http://localhost:${PORT}/api/health`);
-});
+// ==================== EXPORTAR PARA VERCEL ====================
+module.exports = app;
