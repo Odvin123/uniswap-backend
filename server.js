@@ -6,40 +6,19 @@ const { createClient } = require('@supabase/supabase-js');
 dotenv.config();
 
 const app = express();
-
-// CORS para producción y desarrollo
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5174',
-  'https://uniswap-frontend.vercel.app',
-  'https://*.vercel.app'
-];
-
 app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      return callback(null, true);
-    } else {
-      return callback(new Error('No permitido por CORS'));
-    }
-  },
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-
 app.use(express.json({ limit: '10mb' }));
 
-// ==================== INICIALIZAR SUPABASE ====================
+// Inicializar Supabase con SERVICE_KEY
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
-
-// ==================== FUNCIONES AUXILIARES ====================
 
 // Función para asegurar que el perfil existe
 const asegurarPerfil = async (userId, email, nombre) => {
@@ -79,13 +58,7 @@ const verificarToken = async (req, res, next) => {
   next();
 };
 
-// ==================== RUTAS ====================
-
-// Ruta raíz para healthcheck
-app.get('/', (req, res) => {
-  res.json({ status: 'OK', message: 'UNISWAP Backend funcionando!' });
-});
-
+// ==================== RUTAS DE PRUEBA ====================
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'UNISWAP Backend funcionando!' });
 });
@@ -113,8 +86,10 @@ app.post('/api/materiales', verificarToken, async (req, res) => {
   try {
     const { titulo, tipo, carrera, estado, descripcion, imagen_url } = req.body;
     
+    // Asegurar que el perfil existe
     await asegurarPerfil(req.user.id, req.user.email, req.user.user_metadata?.name);
     
+    // Obtener el nombre del usuario
     const nombreUsuario = req.user.user_metadata?.name || req.user.email.split('@')[0];
     
     const { data, error } = await supabase
@@ -125,7 +100,7 @@ app.post('/api/materiales', verificarToken, async (req, res) => {
         carrera,
         estado,
         descripcion,
-        imagen_url: imagen_url || null,
+        imagen_url,
         usuario_id: req.user.id,
         usuario_nombre: nombreUsuario,
         usuario_email: req.user.email,
@@ -138,6 +113,51 @@ app.post('/api/materiales', verificarToken, async (req, res) => {
     res.json(data[0]);
   } catch (error) {
     console.error("Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== RUTAS DE ESTADÍSTICAS ====================
+
+app.get('/api/estadisticas', async (req, res) => {
+  try {
+    // Materiales activos
+    const { data: materiales, error: errorMat } = await supabase
+      .from('materiales')
+      .select('*')
+      .eq('activo', true);
+    
+    // Usuarios únicos (de la tabla perfiles)
+    const { data: perfiles, error: errorPerf } = await supabase
+      .from('perfiles')
+      .select('id');
+    
+    // Solicitudes aceptadas
+    const { data: solicitudes, error: errorSol } = await supabase
+      .from('solicitudes')
+      .select('*')
+      .eq('estado', 'aceptada');
+    
+    const materialesActivos = materiales?.length || 0;
+    const estudiantesActivos = perfiles?.length || 0;
+    const intercambiosRealizados = solicitudes?.length || 0;
+    const co2Evitado = intercambiosRealizados * 7.5;
+    
+    console.log("📊 Estadísticas calculadas:", {
+      materialesActivos,
+      estudiantesActivos,
+      intercambiosRealizados,
+      co2Evitado
+    });
+    
+    res.json({
+      materialesRescatados: materialesActivos,
+      estudiantesActivos: estudiantesActivos,
+      co2Evitado: Math.round(co2Evitado),
+      intercambiosRealizados: intercambiosRealizados
+    });
+  } catch (error) {
+    console.error("Error en estadísticas:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -158,43 +178,9 @@ app.delete('/api/materiales/:id', verificarToken, async (req, res) => {
   }
 });
 
-// ==================== RUTAS DE ESTADÍSTICAS ====================
-
-app.get('/api/estadisticas', async (req, res) => {
-  try {
-    const { data: materiales, error: errorMat } = await supabase
-      .from('materiales')
-      .select('*')
-      .eq('activo', true);
-    
-    const { data: perfiles, error: errorPerf } = await supabase
-      .from('perfiles')
-      .select('id');
-    
-    const { data: solicitudes, error: errorSol } = await supabase
-      .from('solicitudes')
-      .select('*')
-      .eq('estado', 'aceptada');
-    
-    const materialesActivos = materiales?.length || 0;
-    const estudiantesActivos = perfiles?.length || 0;
-    const intercambiosRealizados = solicitudes?.length || 0;
-    const co2Evitado = intercambiosRealizados * 7.5;
-    
-    res.json({
-      materialesRescatados: materialesActivos,
-      estudiantesActivos: estudiantesActivos,
-      co2Evitado: Math.round(co2Evitado),
-      intercambiosRealizados: intercambiosRealizados
-    });
-  } catch (error) {
-    console.error("Error en estadísticas:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // ==================== RUTAS DE PERFIL ====================
 
+// Obtener perfil
 app.get('/api/perfil/:id', async (req, res) => {
   try {
     let { data, error } = await supabase
@@ -204,6 +190,7 @@ app.get('/api/perfil/:id', async (req, res) => {
       .single();
     
     if (error && error.code === 'PGRST116') {
+      // Perfil no existe, crear uno por defecto
       const nuevoPerfil = {
         id: req.params.id,
         email: '',
@@ -226,6 +213,7 @@ app.get('/api/perfil/:id', async (req, res) => {
   }
 });
 
+// Actualizar perfil
 app.put('/api/perfil', verificarToken, async (req, res) => {
   try {
     const { nombre, carrera, telefono, biografia, avatar_url } = req.body;
@@ -253,11 +241,20 @@ app.put('/api/perfil', verificarToken, async (req, res) => {
 
 // ==================== RUTAS DE SOLICITUDES ====================
 
+// Crear solicitud
 app.post('/api/solicitudes', verificarToken, async (req, res) => {
   try {
     const { material_id, material_titulo, propietario_id, propietario_nombre, propietario_email } = req.body;
     
+    console.log("📝 Creando solicitud...");
+    console.log("Material:", material_titulo);
+    console.log("Solicitante:", req.user.id);
+    console.log("Propietario:", propietario_id);
+    
+    // Asegurar que el perfil del solicitante existe
     await asegurarPerfil(req.user.id, req.user.email, req.user.user_metadata?.name);
+    
+    // Asegurar que el perfil del propietario existe
     await asegurarPerfil(propietario_id, propietario_email, propietario_nombre);
     
     const { data, error } = await supabase
@@ -276,14 +273,20 @@ app.post('/api/solicitudes', verificarToken, async (req, res) => {
       })
       .select();
     
-    if (error) throw error;
+    if (error) {
+      console.error("❌ Error al insertar:", error);
+      throw error;
+    }
+    
+    console.log("✅ Solicitud creada:", data[0]);
     res.json(data[0]);
   } catch (error) {
-    console.error("Error:", error);
+    console.error("❌ Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
+// Obtener solicitudes recibidas
 app.get('/api/solicitudes/recibidas', verificarToken, async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -299,6 +302,7 @@ app.get('/api/solicitudes/recibidas', verificarToken, async (req, res) => {
   }
 });
 
+// Obtener solicitudes enviadas
 app.get('/api/solicitudes/enviadas', verificarToken, async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -314,6 +318,7 @@ app.get('/api/solicitudes/enviadas', verificarToken, async (req, res) => {
   }
 });
 
+// Aceptar solicitud
 app.put('/api/solicitudes/:id/aceptar', verificarToken, async (req, res) => {
   try {
     const { error } = await supabase
@@ -324,6 +329,7 @@ app.put('/api/solicitudes/:id/aceptar', verificarToken, async (req, res) => {
     
     if (error) throw error;
     
+    // Desactivar el material
     const { data: solicitud } = await supabase
       .from('solicitudes')
       .select('material_id')
@@ -343,6 +349,7 @@ app.put('/api/solicitudes/:id/aceptar', verificarToken, async (req, res) => {
   }
 });
 
+// Rechazar solicitud
 app.put('/api/solicitudes/:id/rechazar', verificarToken, async (req, res) => {
   try {
     const { error } = await supabase
@@ -358,6 +365,7 @@ app.put('/api/solicitudes/:id/rechazar', verificarToken, async (req, res) => {
   }
 });
 
+// Cancelar solicitud
 app.delete('/api/solicitudes/:id', verificarToken, async (req, res) => {
   try {
     const { error } = await supabase
@@ -376,9 +384,11 @@ app.delete('/api/solicitudes/:id', verificarToken, async (req, res) => {
 
 // ==================== RUTAS DE MENSAJES ====================
 
+// Obtener mensajes de un chat
 app.get('/api/mensajes/:chatId', verificarToken, async (req, res) => {
   try {
     const { chatId } = req.params;
+    console.log("📩 Obteniendo mensajes del chat:", chatId);
     
     const { data, error } = await supabase
       .from('mensajes')
@@ -387,16 +397,23 @@ app.get('/api/mensajes/:chatId', verificarToken, async (req, res) => {
       .order('created_at', { ascending: true });
     
     if (error) throw error;
+    console.log(`✅ ${data?.length || 0} mensajes encontrados`);
     res.json(data || []);
   } catch (error) {
-    console.error("Error:", error);
+    console.error("❌ Error al obtener mensajes:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
+// Enviar mensaje
 app.post('/api/mensajes', verificarToken, async (req, res) => {
   try {
     const { chat_id, texto } = req.body;
+    
+    console.log("📤 Enviando mensaje...");
+    console.log("- Chat ID:", chat_id);
+    console.log("- Emisor:", req.user.id);
+    console.log("- Texto:", texto);
     
     const { data, error } = await supabase
       .from('mensajes')
@@ -409,13 +426,22 @@ app.post('/api/mensajes', verificarToken, async (req, res) => {
       })
       .select();
     
-    if (error) throw error;
+    if (error) {
+      console.error("❌ Error al insertar:", error);
+      throw error;
+    }
+    
+    console.log("✅ Mensaje guardado:", data[0]);
     res.json(data[0]);
   } catch (error) {
-    console.error("Error:", error);
+    console.error("❌ Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ==================== EXPORTAR PARA VERCEL ====================
-module.exports = app;
+// ==================== INICIAR SERVIDOR ====================
+const PORT = process.env.PORT || 5001;
+app.listen(PORT, () => {
+  console.log(`🚀 UNISWAP Backend corriendo en http://localhost:${PORT}`);
+  console.log(`📡 Health check: http://localhost:${PORT}/api/health`);
+});
